@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — HelpDesk NLP</title>
+<style>
+  * { box-sizing: border-box; font-family: "Segoe UI", Arial, sans-serif; }
+  body { margin:0; background:#f4f6fb; color:#1f2430; }
+  header { background:#263238; color:#fff; padding:16px 24px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:20px; margin:0; }
+  input { padding:8px; border:1px solid #c9d2de; border-radius:8px; }
+  button { background:#0b5cad; color:#fff; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; }
+  button.danger { background:#b3261e; }
+  main { max-width:1150px; margin:20px auto; padding:0 16px; display:grid; gap:18px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; }
+  .kpi { background:#fff; border-radius:12px; padding:16px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+  .kpi b { font-size:26px; display:block; }
+  section { background:#fff; border-radius:12px; padding:18px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { border-bottom:1px solid #e6ebf2; padding:8px; text-align:left; vertical-align:top; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .err { color:#ffb3ad; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Dashboard quản trị HelpDesk NLP</h1>
+  <input id="token" placeholder="Admin token" value="admin-demo-token" size="20">
+  <button onclick="loadAll()">Tải dữ liệu</button>
+  <span id="status"></span>
+</header>
+<main>
+  <div class="cards">
+    <div class="kpi"><b id="kSessions">-</b>Phiên hội thoại</div>
+    <div class="kpi"><b id="kMsgs">-</b>Tin nhắn khách</div>
+    <div class="kpi"><b id="kFallback">-</b>Tỷ lệ fallback</div>
+    <div class="kpi"><b id="kHandoff">-</b>Phiên chuyển nhân viên</div>
+    <div class="kpi"><b id="kTickets">-</b>Phiếu khiếu nại gần đây</div>
+  </div>
+
+  <section>
+    <h2>Intent phổ biến</h2>
+    <table><thead><tr><th>Intent</th><th>Số lượt</th></tr></thead><tbody id="intentBody"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Câu hỏi chưa giải quyết (fallback)</h2>
+    <table><thead><tr><th>Thời gian</th><th>Phiên</th><th>Câu hỏi</th></tr></thead><tbody id="unresBody"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Phiếu khiếu nại / hỗ trợ</h2>
+    <table><thead><tr><th>Mã phiếu</th><th>Nội dung</th><th>Trạng thái</th><th>Thời gian</th></tr></thead><tbody id="ticketBody"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Danh sách hội thoại</h2>
+    <table><thead><tr><th>Phiên</th><th>Số tin nhắn</th><th>Chuyển NV</th><th>Lý do</th><th></th></tr></thead><tbody id="convBody"></tbody></table>
+    <div id="convDetail" style="margin-top:12px; white-space:pre-wrap; font-size:14px; background:#f7f9fc; border-radius:8px; padding:10px;"></div>
+  </section>
+
+  <section>
+    <h2>Quản lý Knowledge Base</h2>
+    <div class="row">
+      <input id="kbIntent" placeholder="intent (vd van_chuyen)" size="18">
+      <input id="kbQuestion" placeholder="Câu hỏi" size="30">
+      <input id="kbAnswer" placeholder="Câu trả lời" size="40">
+      <button onclick="addKb()">Thêm mục KB</button>
+    </div>
+    <table><thead><tr><th>ID</th><th>Intent</th><th>Câu hỏi</th><th>Câu trả lời</th><th></th></tr></thead><tbody id="kbBody"></tbody></table>
+  </section>
+</main>
+<script>
+function H() { return { 'X-Admin-Token': document.getElementById('token').value, 'Content-Type': 'application/json' }; }
+async function loadAll() {
+  const st = document.getElementById('status'); st.textContent = 'Đang tải...'; st.className = '';
+  try {
+    const s = await (await fetch('/api/admin/stats', { headers: H() })).json();
+    if (s.detail) throw new Error(s.detail);
+    document.getElementById('kSessions').textContent = s.total_sessions;
+    document.getElementById('kMsgs').textContent = s.total_user_messages;
+    document.getElementById('kFallback').textContent = (s.fallback_rate*100).toFixed(1) + '%';
+    document.getElementById('kHandoff').textContent = s.handoff_sessions;
+    document.getElementById('kTickets').textContent = s.tickets.length;
+    document.getElementById('intentBody').innerHTML = s.top_intents.map(i => `<tr><td>${i.intent}</td><td>${i.c}</td></tr>`).join('') || '<tr><td colspan=2>Chưa có dữ liệu</td></tr>';
+    document.getElementById('unresBody').innerHTML = s.unresolved.map(u => `<tr><td>${u.created_at}</td><td>${u.session_id}</td><td>${u.question}</td></tr>`).join('') || '<tr><td colspan=3>Chưa có câu chưa giải quyết</td></tr>';
+    document.getElementById('ticketBody').innerHTML = s.tickets.map(t => `<tr><td>${t.code}</td><td>${t.content}</td><td>${t.status}</td><td>${t.created_at}</td></tr>`).join('') || '<tr><td colspan=4>Chưa có phiếu</td></tr>';
+    const convs = await (await fetch('/api/admin/conversations', { headers: H() })).json();
+    document.getElementById('convBody').innerHTML = convs.map(c => `<tr><td>${c.id}</td><td>${c.msg_count}</td><td>${c.handoff ? 'Có' : 'Không'}</td><td>${c.handoff_reason||''}</td><td><button onclick="viewConv('${c.id}')">Xem</button></td></tr>`).join('');
+    const kb = await (await fetch('/api/admin/kb', { headers: H() })).json();
+    document.getElementById('kbBody').innerHTML = kb.map(k => `<tr><td>${k.id}</td><td>${k.intent}</td><td>${k.question}</td><td>${k.answer}</td><td><button class="danger" onclick="delKb(${k.id})">Xóa</button></td></tr>`).join('');
+    st.textContent = 'Đã tải xong.';
+  } catch (e) { st.textContent = 'Lỗi: ' + e.message; st.className = 'err'; }
+}
+async function viewConv(id) {
+  const msgs = await (await fetch('/api/admin/conversations/' + id, { headers: H() })).json();
+  document.getElementById('convDetail').textContent = msgs.map(m => `${m.role === 'user' ? 'Khách' : 'Bot'}: ${m.content}`).join('\n');
+}
+async function addKb() {
+  const body = { intent: kbIntent.value, question: kbQuestion.value, answer: kbAnswer.value };
+  const r = await fetch('/api/admin/kb', { method:'POST', headers: H(), body: JSON.stringify(body) });
+  if (r.ok) { kbIntent.value = kbQuestion.value = kbAnswer.value = ''; loadAll(); } else alert('Thêm KB thất bại');
+}
+async function delKb(id) {
+  if (!confirm('Xóa mục KB #' + id + '?')) return;
+  await fetch('/api/admin/kb/' + id, { method:'DELETE', headers: H() }); loadAll();
+}
+loadAll();
+</script>
+</body>
+</html>
